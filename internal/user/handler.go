@@ -2,11 +2,14 @@ package user
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"github.com/Soneto56/market-board/pkg/middleware"
 	"github.com/Soneto56/market-board/pkg/model"
 )
 
@@ -115,11 +118,23 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	// TODO: 下一阶段会在这里生成 JWT token 并返回
+	// ========== 生成 JWT Token ==========
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":  user.ID,
+		"username": user.Username,
+		"exp":      time.Now().Add(72 * time.Hour).Unix(), // 72小时过期
+	})
+
+	tokenString, err := token.SignedString(middleware.JWTSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "login successful",
 		"user_id":  user.ID,
 		"username": user.Username,
+		"token":    tokenString,
 	})
 }
