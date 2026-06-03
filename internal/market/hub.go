@@ -26,9 +26,11 @@ var Upgrader = &websocket.Upgrader{
 
 // Client 代表一个 WebSocket 客户端连接
 type Client struct {
-	hub  *Hub            // 所属的 Hub
-	conn *websocket.Conn // WebSocket 连接
-	send chan []byte     // 发送消息的缓冲通道
+	hub    *Hub            // 所属的 Hub
+	conn   *websocket.Conn // WebSocket 连接
+	send   chan []byte     // 发送消息的缓冲通道
+	userID uint            // ← 新增：该连接对应的用户ID（0 表示未登录）
+	connID string          // ← 新增：连接唯一标识
 }
 
 // readPump 从 WebSocket 连接读取消息（本项目中客户端只订阅，不发消息）
@@ -73,6 +75,10 @@ type Hub struct {
 	mu      sync.RWMutex
 	clients map[string]map[*Client]bool // 交易对 -> 客户端集合
 
+	// ===== 新增：按用户ID索引 =====
+	// key: userID, value: 该用户的所有 WebSocket 连接（一个用户可能打开多个页面）
+	userClients map[uint]map[*Client]bool
+
 	// 注册和注销客户端的通道
 	register   chan *Client
 	unregister chan *Client
@@ -81,9 +87,10 @@ type Hub struct {
 // NewHub 创建一个新的 Hub 实例
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[string]map[*Client]bool),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
+		clients:     make(map[string]map[*Client]bool),
+		userClients: make(map[uint]map[*Client]bool), // ← 新增
+		register:    make(chan *Client),
+		unregister:  make(chan *Client),
 	}
 }
 
@@ -96,24 +103,39 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.register:
-			// 注册新客户端：把它加入 "全局" 订阅列表
-			// 后续行情推送会发给所有注册的客户端
 			h.mu.Lock()
-			// 遍历所有交易对，把该客户端加入每个交易对的订阅集合
+			// 将客户端加入所有交易对的订阅列表（用于行情推送）
 			for _, clients := range h.clients {
 				clients[client] = true
 			}
+			// 加入用户索引（用于成交推送）
+			if client.userID != 0 {
+				if h.userClients[client.userID] == nil {
+					h.userClients[client.userID] = make(map[*Client]bool)
+				}
+				h.userClients[client.userID][client] = true
+			}
 			h.mu.Unlock()
-			log.Printf("client registered, total clients: ~%d", h.clientCount())
+			log.Printf("client registered: connID=%s, userID=%d", client.connID, client.userID)
 
 		case client := <-h.unregister:
-			// 注销客户端：从所有交易对的订阅集合中移除
 			h.mu.Lock()
+			// 从交易对订阅中移除
 			for _, clients := range h.clients {
 				delete(clients, client)
 			}
+			// 从用户索引中移除
+			if client.userID != 0 {
+				if userClients, ok := h.userClients[client.userID]; ok {
+					delete(userClients, client)
+					if len(userClients) == 0 {
+						delete(h.userClients, client.userID)
+					}
+				}
+			}
+			close(client.send)
 			h.mu.Unlock()
-			log.Printf("client unregistered, total clients: ~%d", h.clientCount())
+			log.Printf("client unregistered: connID=%s, userID=%d", client.connID, client.userID)
 		}
 	}
 }
@@ -140,6 +162,26 @@ func (h *Hub) BroadcastTicker(ticker *Ticker) {
 				// 客户端 send 缓冲区满了，跳过这条消息
 				// 避免一个慢客户端拖慢所有推送
 			}
+		}
+	}
+}
+
+// SendToUser 向指定用户的所有连接推送消息
+// 用于成交回报、余额变动等用户级别的通知
+func (h *Hub) SendToUser(userID uint, data []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	userClients, ok := h.userClients[userID]
+	if !ok {
+		return // 该用户没有 WebSocket 连接
+	}
+
+	for client := range userClients {
+		select {
+		case client.send <- data:
+		default:
+			// 跳过慢客户端
 		}
 	}
 }

@@ -1,8 +1,12 @@
 package market
 
 import (
+	"context"
+	"encoding/json"
 	"math/rand"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // Ticker 单个交易对的实时行情
@@ -23,10 +27,11 @@ type Simulator struct {
 	initPrice map[string]float64 // 每个交易对的初始价格
 	hub       *Hub               // WebSocket Hub（行情生成后推送到这里）
 	stopCh    chan struct{}      // 停止信号
+	rdb       *redis.Client      // Redis 客户端
 }
 
 // NewSimulator 创建一个新的行情模拟器
-func NewSimulator(hub *Hub) *Simulator {
+func NewSimulator(hub *Hub, rdb *redis.Client) *Simulator {
 	return &Simulator{
 		symbols: []string{
 			"BTC-USDT", "ETH-USDT", "BNB-USDT", "SOL-USDT", "ADA-USDT",
@@ -45,6 +50,7 @@ func NewSimulator(hub *Hub) *Simulator {
 			"MATIC-USDT": 0.72,
 		},
 		hub:    hub,
+		rdb:    rdb,
 		stopCh: make(chan struct{}),
 	}
 }
@@ -95,6 +101,18 @@ func (s *Simulator) runSymbol(symbol string, price float64) {
 
 			// 推送到 Hub，由 Hub 分发给订阅该交易对的所有客户端
 			s.hub.BroadcastTicker(ticker)
+
+			// ========== 新增：写入 Redis 缓存 ==========
+			ctx := context.Background()
+			tickerKey := "market:ticker:" + symbol
+
+			// 将 Ticker 序列化为 JSON
+			tickerJSON, err := json.Marshal(ticker)
+			if err == nil {
+				// SETEX：设置 key 并设置过期时间（3秒）
+				// 行情数据是高频更新的，3秒过期即使服务异常也不会长时间残留脏数据
+				s.rdb.SetEx(ctx, tickerKey, tickerJSON, 3*time.Second)
+			}
 
 			// 每秒更新一次
 			time.Sleep(1 * time.Second)

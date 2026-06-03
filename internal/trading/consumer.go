@@ -7,20 +7,27 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"gorm.io/gorm"
 
+	"github.com/Soneto56/market-board/internal/market"
 	"github.com/Soneto56/market-board/pkg/model"
 	"github.com/Soneto56/market-board/pkg/mq"
 )
 
 // Consumer RabbitMQ 消费者，消费订单队列
 type Consumer struct {
-	db     *gorm.DB
-	engine *Engine
-	ch     *amqp.Channel
+	db       *gorm.DB
+	engine   *Engine
+	ch       *amqp.Channel
+	notifier Notifier // ← 新增：持有 notifier
 }
 
 // NewConsumer 创建消费者
-func NewConsumer(db *gorm.DB, engine *Engine, ch *amqp.Channel) *Consumer {
-	return &Consumer{db: db, engine: engine, ch: ch}
+func NewConsumer(db *gorm.DB, engine *Engine, ch *amqp.Channel, hub *market.Hub) *Consumer {
+	return &Consumer{
+		db:       db,
+		engine:   engine,
+		ch:       ch,
+		notifier: &HubNotifier{hub: hub},
+	}
 }
 
 // Start 开始消费订单队列
@@ -57,10 +64,8 @@ func (c *Consumer) handleMessage(msg amqp.Delivery) {
 		return
 	}
 
-	// 使用日志 Notifier（后续替换为 WebSocket 推送）
-	notifier := &LogNotifier{}
-
-	if err := c.engine.ProcessOrder(&order, notifier); err != nil {
+	// 传入 notifier（不再是 nil）
+	if err := c.engine.ProcessOrder(&order, c.notifier); err != nil {
 		log.Printf("failed to process order %d: %v", order.ID, err)
 		msg.Nack(false, true)
 		return
@@ -70,9 +75,16 @@ func (c *Consumer) handleMessage(msg amqp.Delivery) {
 	log.Printf("order %d processed successfully", order.ID)
 }
 
-// LogNotifier 简单的日志通知器（后续替换为 WebSocket 推送）
-type LogNotifier struct{}
+// HubNotifier 通过 Hub 向用户推送成交消息
+type HubNotifier struct {
+	hub *market.Hub
+}
 
-func (n *LogNotifier) Notify(userID uint, data any) {
-	log.Printf("notification to user %d: %+v", userID, data)
+func (n *HubNotifier) Notify(userID uint, data any) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("failed to marshal notification: %v", err)
+		return
+	}
+	n.hub.SendToUser(userID, payload)
 }
