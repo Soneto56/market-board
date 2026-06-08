@@ -56,6 +56,17 @@ func main() {
 	// 8. 设置路由
 	r := gin.Default()
 
+	// CORS 跨域中间件
+	r.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
 	// WebSocket 端点：前端建立连接获取成交推送
 	r.GET("/ws", func(c *gin.Context) {
 		// 复用行情网关的 handler，复用 ServeWS 逻辑
