@@ -160,36 +160,44 @@ func (e *Engine) ApplyResult(order *model.Order, result *MatchResult) error {
 			var pos model.Position
 			if err := tx.Where("user_id = ? AND symbol = ?", order.UserID, order.Symbol).First(&pos).Error; err != nil {
 				log.Printf("user %d has no position for %s", order.UserID, order.Symbol)
-				tx.Model(order).Update("status", "REJECTED")
+				// 使用 map 更新指定字段，确保在事务上下文中执行
+				if err := tx.Model(&model.Order{}).Where("id = ?", order.ID).Update("status", "REJECTED").Error; err != nil {
+					log.Printf("failed to reject order: %v", err)
+					return err
+				}
+				// 同步更新传入的 order 对象的 Status
+				order.Status = "REJECTED"
 				return nil
 			}
 			if pos.Quantity < result.FillQty {
 				log.Printf("user %d insufficient position: have %.4f, sell %.4f",
 					order.UserID, pos.Quantity, result.FillQty)
-				tx.Model(order).Update("status", "REJECTED")
+				if err := tx.Model(&model.Order{}).Where("id = ?", order.ID).Update("status", "REJECTED").Error; err != nil {
+					log.Printf("failed to reject order: %v", err)
+					return err
+				}
+				order.Status = "REJECTED"
 				return nil
 			}
 
 			// 减持仓
 			newQty := pos.Quantity - result.FillQty
 			if newQty <= 0 {
-				// 全部卖出，删除持仓记录
 				if err := tx.Delete(&pos).Error; err != nil {
 					log.Printf("failed to delete position: %v", err)
 					return err
 				}
-				log.Printf("deleted position for user %d: %s", order.UserID, order.Symbol)
 			} else {
 				if err := tx.Model(&pos).Update("quantity", newQty).Error; err != nil {
 					log.Printf("failed to update position: %v", err)
 					return err
 				}
-				log.Printf("reduced position for user %d: %s qty -> %.4f",
-					order.UserID, order.Symbol, newQty)
 			}
 
 			// 加余额
-			if err := tx.Model(&user).Update("balance", gorm.Expr("balance + ?", amount)).Error; err != nil {
+			amount := result.FillPrice * result.FillQty
+			if err := tx.Model(&model.User{}).Where("id = ?", order.UserID).
+				Update("balance", gorm.Expr("balance + ?", amount)).Error; err != nil {
 				log.Printf("failed to add balance: %v", err)
 				return err
 			}

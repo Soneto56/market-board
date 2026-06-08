@@ -2,6 +2,7 @@ package trading
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -43,6 +44,19 @@ func (h *Handler) PlaceOrder(c *gin.Context) {
 
 	// 从上下文获取用户ID（JWT中间件注入）
 	userID, exists := c.Get("user_id")
+	// 卖单前置检查持仓
+	if req.Side == "SELL" {
+		var pos model.Position
+		err := h.db.Where("user_id = ? AND symbol = ?", userID, req.Symbol).First(&pos).Error
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no position to sell"})
+			return
+		}
+		if pos.Quantity < req.Quantity {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("insufficient position, you have %.4f", pos.Quantity)})
+			return
+		}
+	}
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
