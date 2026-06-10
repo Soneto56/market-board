@@ -9,6 +9,7 @@ import (
 // 队列名称常量
 const (
 	OrderQueueName = "order.queue" // 委托订单队列
+	TickQueueName  = "tick.queue"  // ← 新增：行情数据队列
 )
 
 // DefaultRabbitMQURL 默认连接地址

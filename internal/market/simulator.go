@@ -21,6 +21,11 @@ type Ticker struct {
 	Timestamp int64   `json:"timestamp"`  // 时间戳（毫秒）
 }
 
+// TickPublisher 行情数据发布接口
+type TickPublisher interface {
+	Publish(ticker *Ticker)
+}
+
 // SimulateTicker 生成模拟行情数据
 type Simulator struct {
 	symbols   []string           // 所有要模拟的交易对
@@ -28,10 +33,11 @@ type Simulator struct {
 	hub       *Hub               // WebSocket Hub（行情生成后推送到这里）
 	stopCh    chan struct{}      // 停止信号
 	rdb       *redis.Client      // Redis 客户端
+	publisher TickPublisher      // 行情数据发布器（RabbitMQ）
 }
 
 // NewSimulator 创建一个新的行情模拟器
-func NewSimulator(hub *Hub, rdb *redis.Client) *Simulator {
+func NewSimulator(hub *Hub, rdb *redis.Client, publisher TickPublisher) *Simulator {
 	return &Simulator{
 		symbols: []string{
 			"BTC-USDT", "ETH-USDT", "BNB-USDT", "SOL-USDT", "ADA-USDT",
@@ -49,9 +55,10 @@ func NewSimulator(hub *Hub, rdb *redis.Client) *Simulator {
 			"DOT-USDT":   7.2,
 			"MATIC-USDT": 0.72,
 		},
-		hub:    hub,
-		rdb:    rdb,
-		stopCh: make(chan struct{}),
+		hub:       hub,
+		rdb:       rdb,
+		publisher: publisher,
+		stopCh:    make(chan struct{}),
 	}
 }
 
@@ -112,6 +119,11 @@ func (s *Simulator) runSymbol(symbol string, price float64) {
 				// SETEX：设置 key 并设置过期时间（3秒）
 				// 行情数据是高频更新的，3秒过期即使服务异常也不会长时间残留脏数据
 				s.rdb.SetEx(ctx, tickerKey, tickerJSON, 3*time.Second)
+			}
+
+			// 发送到 MQ（用于 ES 持久化）
+			if s.publisher != nil {
+				s.publisher.Publish(ticker)
 			}
 
 			// 每秒更新一次
