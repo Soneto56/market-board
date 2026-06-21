@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      hostNetwork: true  
+      containers:
+      - name: user-service
+        image: market-board-user-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8081
+        envFrom:
+        - configMapRef:
+            name: market-board-config
+        - secretRef:
+            name: market-board-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+spec:
+  selector:
+    app: user-service
+  ports:
+  - port: 8081
+    targetPort: 8081
+  type: ClusterIP

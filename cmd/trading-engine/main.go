@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
@@ -17,15 +18,14 @@ import (
 
 func main() {
 	// 1. 连接数据库
-	dsn := "root:yzj24243456@tcp(127.0.0.1:3306)/market_board?charset=utf8mb4&parseTime=True&loc=Local"
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(getDSN()), &gorm.Config{})
 	if err != nil {
 		log.Fatal("failed to connect database:", err)
 	}
 	log.Println("database connected")
 
 	// 2. 连接 RabbitMQ
-	conn, ch, err := mq.ConnectRabbitMQ(mq.DefaultRabbitMQURL)
+	conn, ch, err := mq.ConnectRabbitMQ(mq.GetRabbitMQURL())
 	if err != nil {
 		log.Fatal("failed to connect RabbitMQ:", err)
 	}
@@ -56,7 +56,6 @@ func main() {
 	// 8. 设置路由
 	r := gin.Default()
 
-	// CORS 跨域中间件
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -67,9 +66,8 @@ func main() {
 		}
 		c.Next()
 	})
-	// WebSocket 端点：前端建立连接获取成交推送
+
 	r.GET("/ws", func(c *gin.Context) {
-		// 复用行情网关的 handler，复用 ServeWS 逻辑
 		wsHandler := market.NewHandler(hub)
 		wsHandler.ServeWS(c)
 	})
@@ -87,4 +85,20 @@ func main() {
 	if err := http.ListenAndServe(":8083", r); err != nil {
 		log.Fatal("failed to start trading engine:", err)
 	}
+}
+
+func getDSN() string {
+	user := getEnv("MYSQL_USER", "root")
+	pass := getEnv("MYSQL_PASSWORD", "yzj24243456")
+	host := getEnv("MYSQL_HOST", "127.0.0.1")
+	port := getEnv("MYSQL_PORT", "3306")
+	dbName := getEnv("MYSQL_DATABASE", "market_board")
+	return user + ":" + pass + "@tcp(" + host + ":" + port + ")/" + dbName + "?charset=utf8mb4&parseTime=True&loc=Local"
+}
+
+func getEnv(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
 }

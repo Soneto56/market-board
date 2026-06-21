@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: market-board-config
+data:
+  MYSQL_HOST: "127.0.0.1"
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: "market_board"
+  REDIS_ADDR: "127.0.0.1:6379"
+  RABBITMQ_HOST: "127.0.0.1"
+  RABBITMQ_PORT: "5672"
+  ES_ADDR: "http://127.0.0.1:9200"

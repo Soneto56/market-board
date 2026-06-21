@@ -15,7 +15,6 @@ import (
 	"github.com/Soneto56/market-board/pkg/mq"
 )
 
-// tickPublisher 行情数据发送器
 type tickPublisher struct {
 	ch *amqp.Channel
 }
@@ -30,13 +29,13 @@ func (p *tickPublisher) Publish(ticker *market.Ticker) {
 	}
 
 	p.ch.PublishWithContext(ctx,
-		"",               // exchange
-		mq.TickQueueName, // routing key
+		"",
+		mq.TickQueueName,
 		false, false,
 		amqp.Publishing{
 			ContentType:  "application/json",
 			Body:         body,
-			DeliveryMode: amqp.Transient, // 行情数据允许丢失，不需要持久化
+			DeliveryMode: amqp.Transient,
 		},
 	)
 }
@@ -46,28 +45,12 @@ func main() {
 	rdb := cache.NewRedisClient()
 
 	// 2. 连接 RabbitMQ
-	conn, ch, err := mq.ConnectRabbitMQ(mq.DefaultRabbitMQURL)
+	conn, ch, err := mq.ConnectRabbitMQ(mq.GetRabbitMQURL())
 	if err != nil {
 		log.Fatalf("failed to connect RabbitMQ: %v", err)
 	}
 	defer conn.Close()
 	defer ch.Close()
-
-	// 声明 tick 队列
-	_, err = ch.QueueDeclare(
-		mq.TickQueueName,
-		true,  // durable
-		false, // autoDelete
-		false, // exclusive
-		false, // noWait
-		nil,   // args
-	)
-	if err != nil {
-		log.Fatalf("failed to declare tick queue: %v", err)
-	}
-	log.Println("tick queue declared")
-	// 声明 tick 队列
-	ch.QueueDeclare(mq.TickQueueName, true, false, false, false, nil)
 
 	// 3. 创建行情发送器
 	publisher := &tickPublisher{ch: ch}
@@ -85,7 +68,7 @@ func main() {
 	marketHandler := market.NewHandler(hub)
 	r := gin.Default()
 	r.GET("/ws", marketHandler.ServeWS)
-	r.Static("/web", "./web")
+	r.Static("/web", "/app/web")
 
 	log.Println("Market Gateway starting on :8082")
 	if err := http.ListenAndServe(":8082", r); err != nil {

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-service
+  template:
+    metadata:
+      labels:
+        app: data-service
+    spec:
+      hostNetwork: true
+      containers:
+      - name: data-service
+        image: market-board-data-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8084
+        envFrom:
+        - configMapRef:
+            name: market-board-config
+        - secretRef:
+            name: market-board-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-service
+spec:
+  selector:
+    app: data-service
+  ports:
+  - port: 8084
+    targetPort: 8084
+  type: ClusterIP

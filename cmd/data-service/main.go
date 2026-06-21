@@ -16,7 +16,7 @@ func main() {
 	esClient := es.NewClient()
 
 	// 2. 连接 RabbitMQ
-	conn, ch, err := mq.ConnectRabbitMQ(mq.DefaultRabbitMQURL)
+	conn, ch, err := mq.ConnectRabbitMQ(mq.GetRabbitMQURL())
 	if err != nil {
 		log.Fatalf("failed to connect RabbitMQ: %v", err)
 	}
@@ -27,7 +27,7 @@ func main() {
 	writer := data.NewWriter(esClient)
 	defer writer.Close()
 
-	// 4. 启动消费者（消费 tick 队列，写入 ES）
+	// 4. 启动消费者
 	consumer := data.NewConsumer(writer, ch)
 	if err := consumer.Start(); err != nil {
 		log.Fatalf("failed to start consumer: %v", err)

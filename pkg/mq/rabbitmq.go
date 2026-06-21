@@ -2,48 +2,59 @@ package mq
 
 import (
 	"log"
+	"os"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// 队列名称常量
 const (
-	OrderQueueName = "order.queue" // 委托订单队列
-	TickQueueName  = "tick.queue"  // ← 新增：行情数据队列
+	OrderQueueName = "order.queue"
+	TickQueueName  = "tick.queue"
 )
 
-// DefaultRabbitMQURL 默认连接地址
-// 生产环境应从配置文件读取
-const DefaultRabbitMQURL = "amqp://guest:guest@localhost:5672/"
-
-// ConnectRabbitMQ 建立 RabbitMQ 连接并声明队列
 func ConnectRabbitMQ(url string) (*amqp.Connection, *amqp.Channel, error) {
 	conn, err := amqp.Dial(url)
 	if err != nil {
-		log.Printf("Failed to connect to RabbitMQ: %v", err)
 		return nil, nil, err
 	}
+
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Printf("Failed to open a channel: %v", err)
 		conn.Close()
 		return nil, nil, err
 	}
-	// 声明队列（持久化 + 非排他 + 非自动删除）
-	_, err = ch.QueueDeclare(
-		OrderQueueName, // name
-		true,           // durable
-		false,          // delete when unused
-		false,          // exclusive
-		false,          // no-wait
-		nil,            // arguments
-	)
+
+	// 声明订单队列
+	_, err = ch.QueueDeclare(OrderQueueName, true, false, false, false, nil)
 	if err != nil {
-		log.Printf("Failed to declare queue: %v", err)
 		ch.Close()
 		conn.Close()
 		return nil, nil, err
 	}
-	log.Println("RabbitMQ connected, order queue ready")
+
+	// 声明行情队列
+	_, err = ch.QueueDeclare(TickQueueName, true, false, false, false, nil)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, nil, err
+	}
+
+	log.Println("RabbitMQ connected, queues ready")
 	return conn, ch, nil
+}
+
+func GetRabbitMQURL() string {
+	user := getEnv("RABBITMQ_USER", "guest")
+	pass := getEnv("RABBITMQ_PASSWORD", "guest")
+	host := getEnv("RABBITMQ_HOST", "localhost")
+	port := getEnv("RABBITMQ_PORT", "5672")
+	return "amqp://" + user + ":" + pass + "@" + host + ":" + port + "/"
+}
+
+func getEnv(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
 }

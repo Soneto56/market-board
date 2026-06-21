@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trading-engine
+  template:
+    metadata:
+      labels:
+        app: trading-engine
+    spec:
+      hostNetwork: true
+      containers:
+      - name: trading-engine
+        image: market-board-trading-engine:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8083
+        envFrom:
+        - configMapRef:
+            name: market-board-config
+        - secretRef:
+            name: market-board-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-engine
+spec:
+  selector:
+    app: trading-engine
+  ports:
+  - port: 8083
+    targetPort: 8083
+  type: ClusterIP

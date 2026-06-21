@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: market-gateway
+  template:
+    metadata:
+      labels:
+        app: market-gateway
+    spec:
+      hostNetwork: true
+      containers:
+      - name: market-gateway
+        image: market-board-market-gateway:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8082
+        envFrom:
+        - configMapRef:
+            name: market-board-config
+        - secretRef:
+            name: market-board-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-gateway
+spec:
+  selector:
+    app: market-gateway
+  ports:
+  - port: 8082
+    targetPort: 8082
+  type: LoadBalancer

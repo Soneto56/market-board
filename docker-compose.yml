@@ -1,0 +1,117 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass 123456
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      - RABBITMQ_DEFAULT_USER=market
+      - RABBITMQ_DEFAULT_PASS=market123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+  user-service:
+    build:
+      context: .
+      target: user-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - MYSQL_HOST=10.38.58.148
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=yzj24243456
+      - MYSQL_DATABASE=market_board
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=123456
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=market
+      - RABBITMQ_PASSWORD=market123
+
+  market-gateway:
+    build:
+      context: .
+      target: market-gateway
+    ports:
+      - "8082:8082"
+    depends_on:
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=123456
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=market
+      - RABBITMQ_PASSWORD=market123
+
+  trading-engine:
+    build:
+      context: .
+      target: trading-engine
+    ports:
+      - "8083:8083"
+    depends_on:
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - MYSQL_HOST=10.38.58.148
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=yzj24243456
+      - MYSQL_DATABASE=market_board
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=123456
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=market
+      - RABBITMQ_PASSWORD=market123
+
+  data-service:
+    build:
+      context: .
+      target: data-service
+    ports:
+      - "8084:8084"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ES_ADDR=http://elasticsearch:9200
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=market
+      - RABBITMQ_PASSWORD=market123
